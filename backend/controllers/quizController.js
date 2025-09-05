@@ -8,41 +8,26 @@ const path = require('path');
 
 const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
 
-const formatQuestionTypes = (types) => {
-    const typeMap = {
-        mcq: 'Multiple Choice (exactly 4 options)',
-        tf: 'True/False',
-        fill: 'Fill-in-the-blank'
-    };
-    return types.map(type => typeMap[type]).join(', ');
-};
-
-const callAI = async (sourceContent, numQuestions, questionTypes) => {
-    const formattedTypes = formatQuestionTypes(questionTypes);
-    const hasMultipleChoice = questionTypes.includes('mcq');
-
-    const instructionsPrompt = `
-Generate exactly ${numQuestions} questions.
-The questions must be of the following types **only**: ${formattedTypes}.
-The output must be a single JSON object with a key "questions", which is an array of question objects.
-Each question object must have the following keys:
-    * "question_type" (string): One of the types listed above.
-    * "question_text" (string): The quiz question itself.
-    * "options" (array of strings): **Required only for Multiple Choice questions.** Must have exactly 4 options.
-    * "correct_answer" (string): The correct answer.
-    * "difficulty" (string): One of "easy", "medium", or "hard".
-    * "explanation" (string): A brief explanation for the correct answer.
-`;
-
-    const fullPrompt = `
+const callAI = async (sourceContent, numQuestions) => {
+    // This is the prompt that generates ALL question types.
+    const allTypesPrompt = `
 You are a quiz generation expert. Your task is to create a quiz based *exclusively* on the content provided below.
 DO NOT GENERATE QUESTIONS ON ANY OTHER TOPIC.
-DO NOT ADD ANY EXPLANATORY TEXT, INTRODUCTION, OR CONCLUSION.
 The output must be a single, valid JSON object with the specified structure.
 
 ---
 INSTRUCTIONS
-${instructionsPrompt}
+1.  Generate exactly ${numQuestions} questions.
+2.  The output must be a single JSON object with a key "questions", which is an array of question objects.
+3.  Each question object must have the following keys:
+    * "question_type" (string): One of "mcq", "tf", or "fill".
+    * "question_text" (string): The quiz question itself.
+    * "options" (array of strings): Only for "mcq" questions. Must have exactly 4 options.
+    * "correct_answer" (string): The correct answer.
+    * "difficulty" (string): One of "easy", "medium", or "hard".
+    * "explanation" (string): A brief explanation for the correct answer.
+4.  Ensure questions are clear, non-repetitive, and directly related to the source content.
+5.  Return ONLY the final, valid JSON object. Do not include any other text or markdown outside the JSON.
 ---
 CONTENT
 ${sourceContent}
@@ -51,9 +36,9 @@ ${sourceContent}
     try {
         const geminiApiKey = process.env.GEMINI_API_KEY;
         const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`;
-        
+
         const geminiResponse = await axios.post(geminiEndpoint, {
-            contents: [{ parts: [{ text: fullPrompt }] }],
+            contents: [{ parts: [{ text: allTypesPrompt }] }],
             generationConfig: {
                 stopSequences: ['`'],
                 responseMimeType: "application/json"
@@ -79,20 +64,10 @@ ${sourceContent}
         try {
             const openaiApiKey = process.env.OPENAI_API_KEY;
             const openaiEndpoint = 'https://api.openai.com/v1/chat/completions';
-
-            const openaiPrompt = `
-You are a quiz generation expert. Create a quiz based *only* on the following topic or text: "${sourceContent}".
-The quiz must have exactly ${numQuestions} questions.
-The questions should be of types: ${formattedTypes}.
-Format the output as a single JSON object with a "questions" key. The value of "questions" must be an array of question objects.
-Each question object must have "question_type", "question_text", "correct_answer", "difficulty", and "explanation".
-Multiple-choice questions must also have an "options" array.
-Return ONLY the valid JSON object.
-`;
             
             const openaiResponse = await axios.post(openaiEndpoint, {
                 model: 'gpt-3.5-turbo',
-                messages: [{ role: 'user', content: openaiPrompt }],
+                messages: [{ role: 'user', content: allTypesPrompt }],
                 response_format: { type: "json_object" }
             }, {
                 headers: { 'Authorization': `Bearer ${openaiApiKey}`, 'Content-Type': 'application/json' }
@@ -133,8 +108,12 @@ exports.generateQuiz = async (req, res) => {
 
         const rawQuizData = await callAI(sourceContent, numQ, questionTypes);
 
-        // This is the post-processing step to fix the question count
-        const finalQuestions = rawQuizData.questions.slice(0, numQ);
+        // --- FINAL FIX: POST-PROCESSING THE RESULTS ---
+        const selectedTypesSet = new Set(questionTypes);
+        const filteredQuestions = rawQuizData.questions.filter(q => selectedTypesSet.has(q.question_type));
+
+        // Trim the filtered questions to the user's requested count
+        const finalQuestions = filteredQuestions.slice(0, numQ);
 
         res.json({ title: topic || 'Generated Quiz', questions: finalQuestions });
     } catch (err) {

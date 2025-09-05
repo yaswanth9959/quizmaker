@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
 
+// Import the new axios configuration file
 import "./axios-config";
 
 import { Header } from "@/components/layout/Header";
@@ -35,11 +36,6 @@ const App = () => (
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/create" element={<PrivateRoute><CreateQuiz /></PrivateRoute>} />
                 <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
-                
-                {/* Dynamic routes for viewing and editing quizzes */}
-                <Route path="/quiz/:id" element={<PrivateRoute><QuizPreview /></PrivateRoute>} />
-                <Route path="/edit/:id" element={<PrivateRoute><QuizPreview /></PrivateRoute>} />
-                
                 <Route path="/preview" element={<QuizPreview />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

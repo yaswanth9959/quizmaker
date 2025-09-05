@@ -4,8 +4,9 @@ import axios from "axios";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, BookOpen, Edit, Trash, Download } from "lucide-react";
+import { Loader2, BookOpen, Edit, Trash, Download, MoreHorizontal } from "lucide-react";
 
 interface Quiz {
   _id: string;
@@ -154,21 +155,37 @@ export const DashboardPage = () => {
                   </p>
                 </CardHeader>
                 <CardContent className="flex flex-wrap gap-4">
-                  <Button variant="ghost" size="sm" onClick={() => navigate(`/quiz/${quiz._id}`)}>
-                    <BookOpen className="mr-2 h-4 w-4" /> View
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => navigate(`/edit/${quiz._id}`)}>
-                    <Edit className="mr-2 h-4 w-4" /> Edit
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleExport(quiz._id, 'pdf', quiz.title)}>
-                    <Download className="mr-2 h-4 w-4" /> PDF
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleExport(quiz._id, 'docx', quiz.title)}>
-                    <Download className="mr-2 h-4 w-4" /> Word
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(quiz._id)}>
-                    <Trash className="mr-2 h-4 w-4" /> Delete
-                  </Button>
+                  
+                  {/* Single Actions Popover/Dropdown */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-48 p-2">
+                      <div className="flex flex-col space-y-1">
+                        <Button variant="ghost" className="justify-start" onClick={() => navigate(`/quiz/${quiz._id}`)}>
+                          <BookOpen className="mr-2 h-4 w-4" /> View
+                        </Button>
+                        <Button variant="ghost" className="justify-start" onClick={() => navigate(`/edit/${quiz._id}`)}>
+                          <Edit className="mr-2 h-4 w-4" /> Edit
+                        </Button>
+                        <Separator />
+                        <Button variant="ghost" className="justify-start" onClick={() => handleExport(quiz._id, 'pdf', quiz.title)}>
+                          <Download className="mr-2 h-4 w-4" /> Export PDF
+                        </Button>
+                        <Button variant="ghost" className="justify-start" onClick={() => handleExport(quiz._id, 'docx', quiz.title)}>
+                          <Download className="mr-2 h-4 w-4" /> Export Word
+                        </Button>
+                        <Separator />
+                        <Button variant="ghost" className="justify-start text-destructive" onClick={() => handleDelete(quiz._id)}>
+                          <Trash className="mr-2 h-4 w-4" /> Delete
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
                 </CardContent>
               </Card>
             ))}
