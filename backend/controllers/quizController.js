@@ -8,25 +8,6 @@ const path = require('path');
 
 const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = docx;
 
-const retryApiCall = async (callFunc, maxRetries = 3) => {
-    let retries = 0;
-    while (retries < maxRetries) {
-        try {
-            return await callFunc();
-        } catch (error) {
-            if (error.response && error.response.status === 429) {
-                const delay = Math.pow(2, retries) * 1000;
-                console.warn(`API call failed with status 429. Retrying in ${delay / 1000} seconds...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                retries++;
-            } else {
-                throw error;
-            }
-        }
-    }
-    throw new Error('Max retries exceeded for API call.');
-};
-
 const formatQuestionTypes = (types) => {
     const typeMap = {
         mcq: 'Multiple Choice (exactly 4 options)',
@@ -36,12 +17,13 @@ const formatQuestionTypes = (types) => {
     return types.map(type => typeMap[type]).join(', ');
 };
 
-const callAI = async (sourceContent, numQuestions, questionTypes, difficulty) => {
+const callAI = async (sourceContent, numQuestions, questionTypes) => {
     const formattedTypes = formatQuestionTypes(questionTypes);
+    const hasMultipleChoice = questionTypes.includes('mcq');
+
     const instructionsPrompt = `
 Generate exactly ${numQuestions} questions.
 The questions must be of the following types **only**: ${formattedTypes}.
-The difficulty for the questions should be: ${difficulty}.
 The output must be a single JSON object with a key "questions", which is an array of question objects.
 Each question object must have the following keys:
     * "question_type" (string): One of the types listed above.
@@ -69,14 +51,14 @@ ${sourceContent}
     try {
         const geminiApiKey = process.env.GEMINI_API_KEY;
         const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`;
-
-        const geminiResponse = await retryApiCall(() => axios.post(geminiEndpoint, {
+        
+        const geminiResponse = await axios.post(geminiEndpoint, {
             contents: [{ parts: [{ text: fullPrompt }] }],
             generationConfig: {
                 stopSequences: ['`'],
                 responseMimeType: "application/json"
             }
-        }));
+        });
 
         let aiContent = geminiResponse.data.candidates[0].content.parts[0].text;
         const jsonMatch = aiContent.match(/```json\s*([\s\S]*?)\s*```/);
@@ -97,14 +79,24 @@ ${sourceContent}
         try {
             const openaiApiKey = process.env.OPENAI_API_KEY;
             const openaiEndpoint = 'https://api.openai.com/v1/chat/completions';
+
+            const openaiPrompt = `
+You are a quiz generation expert. Create a quiz based *only* on the following topic or text: "${sourceContent}".
+The quiz must have exactly ${numQuestions} questions.
+The questions should be of types: ${formattedTypes}.
+Format the output as a single JSON object with a "questions" key. The value of "questions" must be an array of question objects.
+Each question object must have "question_type", "question_text", "correct_answer", "difficulty", and "explanation".
+Multiple-choice questions must also have an "options" array.
+Return ONLY the valid JSON object.
+`;
             
-            const openaiResponse = await retryApiCall(() => axios.post(openaiEndpoint, {
+            const openaiResponse = await axios.post(openaiEndpoint, {
                 model: 'gpt-3.5-turbo',
-                messages: [{ role: 'user', content: fullPrompt }],
+                messages: [{ role: 'user', content: openaiPrompt }],
                 response_format: { type: "json_object" }
             }, {
                 headers: { 'Authorization': `Bearer ${openaiApiKey}`, 'Content-Type': 'application/json' }
-            }));
+            });
 
             console.log("Quiz generated using OpenAI API.");
             return JSON.parse(openaiResponse.data.choices[0].message.content);
@@ -118,7 +110,7 @@ ${sourceContent}
 
 exports.generateQuiz = async (req, res) => {
     try {
-        const { topic, text, numQuestions, questionTypes, difficulty } = req.body;
+        const { topic, text, numQuestions, questionTypes } = req.body;
         let sourceContent = '';
 
         if (req.file) {
@@ -139,12 +131,10 @@ exports.generateQuiz = async (req, res) => {
             return res.status(400).json({ msg: 'Number of questions must be between 1 and 100' });
         }
 
-        const rawQuizData = await callAI(sourceContent, numQ, questionTypes, difficulty);
+        const rawQuizData = await callAI(sourceContent, numQ, questionTypes);
 
-        const selectedTypesSet = new Set(questionTypes);
-        const filteredByType = rawQuizData.questions.filter(q => selectedTypesSet.has(q.question_type));
-
-        const finalQuestions = filteredByType.slice(0, numQ);
+        // This is the post-processing step to fix the question count
+        const finalQuestions = rawQuizData.questions.slice(0, numQ);
 
         res.json({ title: topic || 'Generated Quiz', questions: finalQuestions });
     } catch (err) {
